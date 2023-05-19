@@ -1,0 +1,17 @@
+# this is for E-DIO24 measurement computing.
+
+file "$(MEASCOMP)/iocBoot/$(IOC)/binaryOutAlias.template"
+{ 
+pattern
+{N, P1, R1}
+{"1", "$(P)", "FlO"}
+{"3", "$(P)", "SH1"}
+{"4", "$(P)", "SH2"}
+}
+
+file "$(MEASCOMP)/iocBoot/$(IOC)/binaryInAlias.template"
+{
+pattern
+{N, P1, R1}
+{"2", "$(P)", "FlI"}
+}

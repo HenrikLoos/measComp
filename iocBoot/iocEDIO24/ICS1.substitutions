@@ -1,0 +1,15 @@
+# this is for E-DIO24 measurement computing.
+
+file "$(MEASCOMP)/iocBoot/$(IOC)/binaryOutAlias.template"
+{ 
+pattern
+{N, P1, R1}
+{"1", "LED:", "ICS1:10:Enable"}
+}
+
+file "$(MEASCOMP)/iocBoot/$(IOC)/binaryInAlias.template"
+{
+pattern
+{N, P1, R1}
+{"11", "LED:", "ICS1:110:Status"}
+}
