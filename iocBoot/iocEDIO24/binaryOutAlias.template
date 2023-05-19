@@ -1,0 +1,2 @@
+alias("$(P)$(Bo)$(N)","$(P1)$(R1)")
+alias("$(P)$(Bo)$(N)_RBV","$(P1)$(R1)_RBV")
