@@ -6,7 +6,7 @@
 epicsEnvSet("EPICS_CA_SERVER_PORT", "63102")
 
 # Shell prompt
-epicsEnvSet("IOCSH_PS1", "sioc-las1-mc01> ")
+epicsEnvSet("IOCSH_PS1", "sioc-las1-mp01> ")
 
 # devIocStats
 epicsEnvSet("DEVIOCSTATS", "$(SUPPORT)/iocStats-3-1-16")
@@ -33,10 +33,10 @@ dbLoadTemplate("$(MEASCOMP)/db/EDIO24.substitutions", "P=$(PREFIX),PORT=$(PORT)"
 dbLoadTemplate("$(MEASCOMP)/iocBoot/$(IOC)/LAS1.substitutions", "P=$(PREFIX),Bo=Bo, Bi=Bi")
 
 # devIocStats
-#dbLoadRecords("$(DEVIOCSTATS)/db/iocAdminSoft.db","IOC=SIOC:LAS1:MC01")
+#dbLoadRecords("$(DEVIOCSTATS)/db/iocAdminSoft.db","IOC=SIOC:LAS1:MP01")
 
 < ../save_restore.cmd
-set_savefile_path("./autosave/las1-10")
+set_savefile_path("./autosave/las1-mp10")
 
 iocInit
 

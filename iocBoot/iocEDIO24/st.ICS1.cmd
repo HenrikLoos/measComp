@@ -36,7 +36,7 @@ dbLoadTemplate("$(MEASCOMP)/iocBoot/$(IOC)/ICS1.substitutions", "P=$(PREFIX),Bo=
 #dbLoadRecords("$(DEVIOCSTATS)/db/iocAdminSoft.db","IOC=SIOC:ICS1:LC01")
 
 < ../save_restore.cmd
-set_savefile_path("./autosave/ics1-10")
+set_savefile_path("./autosave/ics1-mp10")
 
 iocInit
 
