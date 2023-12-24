@@ -112,7 +112,7 @@ typedef enum {
 // Pulse output parameters
 #define pulseGenRunString         "PULSE_RUN"
 #define pulseGenPeriodString      "PULSE_PERIOD"
-#define pulseGenWidthString       "PULSE_WIDTH"
+#define pulseGenDutyCycleString   "PULSE_DUTY_CYCLE"
 #define pulseGenDelayString       "PULSE_DELAY"
 #define pulseGenCountString       "PULSE_COUNT"
 #define pulseGenIdleStateString   "PULSE_IDLE_STATE"
@@ -465,7 +465,7 @@ static const enumStruct_t inputTypeE_TC[] = {
 };
 
 #ifdef _WIN32
-  // The sensor type cannot be configured in UL for Windows so we use these default enum values
+  // The sensor type cannot be configured in UL for Windows so widthwe use these default enum values
   static const enumStruct_t temperatureSensorUSB_TEMP[] = {
     {"RTD",           0},
     {"Thermistor",    1},
@@ -566,9 +566,8 @@ static const boardEnums_t allBoardEnums[] = {
 };
 
 static int maxBoardFamilies = (int) (sizeof(allBoardEnums) / sizeof(boardEnums_t));
-#define DEFAULT_POLL_TIME 0.01
 #define ROUND(x) ((x) >= 0. ? (int)x+0.5 : (int)(x-0.5))
-#define MAX_BOARDNAME_LEN    256
+#define MAX_BOARDNAME_LEN 256
 #define MAX_LIBRARY_MESSAGE_LEN 256
 #define PI 3.14159265
 
@@ -580,7 +579,6 @@ public:
 
   /* These are the methods that we override from asynPortDriver */
   virtual asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
-  virtual asynStatus readInt32(asynUser *pasynUser, epicsInt32 *value);
   virtual asynStatus getBounds(asynUser *pasynUser, epicsInt32 *low, epicsInt32 *high);
   virtual asynStatus writeFloat64(asynUser *pasynUser, epicsFloat64 value);
   virtual asynStatus readFloat64(asynUser *pasynUser, epicsFloat64 *value);
@@ -608,7 +606,7 @@ protected:
   // Pulse generator parameters
   int pulseGenRun_;
   int pulseGenPeriod_;
-  int pulseGenWidth_;
+  int pulseGenDutyCycle_;
   int pulseGenDelay_;
   int pulseGenCount_;
   int pulseGenIdleState_;
@@ -793,7 +791,6 @@ MultiFunction::MultiFunction(const char *portName, const char *uniqueID, int max
                               asynFloat64Mask | asynFloat64ArrayMask | asynOctetMask        | asynEnumMask,
       ASYN_MULTIDEVICE | ASYN_CANBLOCK, 1, /* ASYN_CANBLOCK=1, ASYN_MULTIDEVICE=1, autoConnect=1 */
       0, 0),  /* Default priority and stack size */
-    pollTime_(DEFAULT_POLL_TIME),
     maxInputPoints_(maxInputPoints),
     maxOutputPoints_(maxOutputPoints),
     numWaveGenChans_(1),
@@ -838,7 +835,7 @@ MultiFunction::MultiFunction(const char *portName, const char *uniqueID, int max
   // Pulse generator parameters
   createParam(pulseGenRunString,               asynParamInt32, &pulseGenRun_);
   createParam(pulseGenPeriodString,          asynParamFloat64, &pulseGenPeriod_);
-  createParam(pulseGenWidthString,           asynParamFloat64, &pulseGenWidth_);
+  createParam(pulseGenDutyCycleString,       asynParamFloat64, &pulseGenDutyCycle_);
   createParam(pulseGenDelayString,           asynParamFloat64, &pulseGenDelay_);
   createParam(pulseGenCountString,             asynParamInt32, &pulseGenCount_);
   createParam(pulseGenIdleStateString,         asynParamInt32, &pulseGenIdleState_);
@@ -1168,6 +1165,9 @@ MultiFunction::MultiFunction(const char *portName, const char *uniqueID, int max
       numTimers_    = 0;
       numCounters_  = 1;
       firstCounter_ = 0;
+      // There appears to be a bug on Windows when reading numAnalogIn_ above.  
+      // It is setting numAnalogIn_=4, when it should be 8
+      numAnalogIn_  = 8;
       break;
     case E_DIO24:
       numTimers_    = 0;
@@ -1184,8 +1184,8 @@ MultiFunction::MultiFunction(const char *portName, const char *uniqueID, int max
       break;
     default:
       asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,
-        "%s::%s error, unknown board type=%d\n",
-        driverName, functionName, boardType_);
+        "%s::%s error, unknown board type=%d, board family=%d\n",
+        driverName, functionName, boardType_, boardFamily_);
       break;
   }
 
@@ -1228,6 +1228,7 @@ MultiFunction::MultiFunction(const char *portName, const char *uniqueID, int max
   setIntegerParam(pulseGenRun_, 0);
   setIntegerParam(waveDigRun_, 0);
   setIntegerParam(waveGenRun_, 0);
+  setDoubleParam(pollSleepMS_, 50.);
   for (i=0; i<numTempChans_; i++) {
     setIntegerParam(i, thermocoupleType_, TC_TYPE_J);
   }
@@ -1389,13 +1390,13 @@ int MultiFunction::mapTriggerType(int cbwTriggerType, TriggerType *triggerType)
 int MultiFunction::startPulseGenerator(int timerNum)
 {
   int status=0;
-  double frequency, period, width, delay;
+  double frequency, period, delay;
   double dutyCycle;
   int count, idleState;
   static const char *functionName = "startPulseGenerator";
 
   getDoubleParam (timerNum, pulseGenPeriod_,    &period);
-  getDoubleParam (timerNum, pulseGenWidth_,     &width);
+  getDoubleParam (timerNum, pulseGenDutyCycle_, &dutyCycle);
   getDoubleParam (timerNum, pulseGenDelay_,     &delay);
   getIntegerParam(timerNum, pulseGenCount_,     &count);
   getIntegerParam(timerNum, pulseGenIdleState_, &idleState);
@@ -1403,7 +1404,6 @@ int MultiFunction::startPulseGenerator(int timerNum)
   frequency = 1./period;
   if (frequency < minPulseGenFrequency_) frequency = minPulseGenFrequency_;
   if (frequency > maxPulseGenFrequency_) frequency = maxPulseGenFrequency_;
-  dutyCycle = width * frequency;
   period = 1. / frequency;
   if (dutyCycle <= 0.) dutyCycle = .0001;
   if (dutyCycle >= 1.) dutyCycle = .9999;
@@ -1424,12 +1424,11 @@ int MultiFunction::startPulseGenerator(int timerNum)
   // in the parameter library
   pulseGenRunning_[timerNum] = 1;
   period = 1. / frequency;
-  width = period * dutyCycle;
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,
-    "%s:%s: started pulse generator %d actual frequency=%f, actual period=%f, actual width=%f, actual delay=%f\n",
-    driverName, functionName, timerNum, frequency, period, width, delay);
+    "%s:%s: started pulse generator %d actual frequency=%f, actual period=%f, actual duty cycle=%f, actual delay=%f\n",
+    driverName, functionName, timerNum, frequency, period, dutyCycle, delay);
   setDoubleParam(timerNum, pulseGenPeriod_, period);
-  setDoubleParam(timerNum, pulseGenWidth_, width);
+  setDoubleParam(timerNum, pulseGenDutyCycle_, dutyCycle);
   setDoubleParam(timerNum, pulseGenDelay_, delay);
   return 0;
 }
@@ -2032,7 +2031,7 @@ asynStatus MultiFunction::writeInt32(asynUser *pasynUser, epicsInt32 value)
       asynPrint(pasynUserSelf, ASYN_TRACE_ERROR,
                 "%s::%s error WaveDigNumPoints=%d must be less than MaxInputPoints=%d\n",
                 driverName, functionName, value, (int)maxInputPoints_);
-      setIntegerParam(waveDigNumPoints_, maxInputPoints_);
+      setIntegerParam(waveDigNumPoints_, (int)maxInputPoints_);
     }
     computeWaveDigTimes();
   }
@@ -2127,8 +2126,8 @@ int MultiFunction::setOpenThermocoupleDetect(int addr, int value)
       status = cbSetConfig(BOARDINFO, boardNum_, addr, BIDETECTOPENTC, value);
     #else
       OtdMode mode = value ? OTD_ENABLED : OTD_DISABLED;
-      // TC-32 can only change open thermocouple detect for the entire device, not per-channel
-      if (boardFamily_ == USB_TC32) {
+      // TC-32 and E-TC can only change open thermocouple detect for the entire device, not per-channel
+      if (boardFamily_ == USB_TC32 || boardFamily_ == E_TC ) {
         int dev = 0;
         if (addr >= 32) dev = 1;
         status = ulAISetConfig(daqDeviceHandle_, AI_CFG_OTD_MODE, dev, mode);
@@ -2140,67 +2139,6 @@ int MultiFunction::setOpenThermocoupleDetect(int addr, int value)
     reportError(status, functionName, "Setting thermocouple open detect mode");
   }
   return status;
-}
-
-asynStatus MultiFunction::readInt32(asynUser *pasynUser, epicsInt32 *value)
-{
-  int addr;
-  int function = pasynUser->reason;
-  int status=0;
-  int type;
-  int mode;
-  int model;
-  int range;
-  static const char *functionName = "readInt32";
-
-  this->getAddress(pasynUser, &addr);
-
-  // Analog input function
-  if (function == analogInValue_) {
-    if (waveDigRunning_) return asynSuccess;
-    getIntegerParam(addr, analogInRange_, &range);
-    getIntegerParam(addr, analogInType_, &type);
-    getIntegerParam(0, analogInMode_, &mode);
-    getIntegerParam(0, modelNumber_, &model);
-    if ((model == E_1608) && (mode == DIFFERENTIAL) && (addr>3)) return asynSuccess;
-    if (type != AI_CHAN_TYPE_VOLTAGE) return asynSuccess;
-    // NOTE: There is something wrong with their driver.
-    // If cbAIn is just called once there is a large error due apparently
-    // to not allowing settling time before reading.  For now we read twice
-    // which removes the error.
-    ULMutex.lock();
-    #ifdef _WIN32
-      if (ADCResolution_ <= 16) {
-        epicsUInt16 shortVal;
-        status = cbAIn(boardNum_, addr, range, &shortVal);
-        status = cbAIn(boardNum_, addr, range, &shortVal);
-        *value = shortVal;
-      } else {
-        ULONG ulongVal;
-        status = cbAIn32(boardNum_, addr, range, &ulongVal, 0);
-        status = cbAIn32(boardNum_, addr, range, &ulongVal, 0);
-        *value = (epicsInt32)ulongVal;
-      }
-    #else
-      double data;
-      Range ulRange;
-      mapRange(range, &ulRange);
-      status = ulAIn(daqDeviceHandle_, addr, aiInputMode_, ulRange, AIN_FF_NOSCALEDATA, &data);
-      status = ulAIn(daqDeviceHandle_, addr, aiInputMode_, ulRange, AIN_FF_NOSCALEDATA, &data);
-      *value = (epicsInt32) data;
-    #endif
-    ULMutex.unlock();
-    setIntegerParam(addr, analogInValue_, *value);
-    reportError(status, functionName, "Calling AIn");
-  }
-
-  // Other functions we call the base class method
-  else {
-     status = asynPortDriver::readInt32(pasynUser, value);
-  }
-
-  callParamCallbacks(addr);
-  return (status==0) ? asynSuccess : asynError;
 }
 
 asynStatus MultiFunction::writeFloat64(asynUser *pasynUser, epicsFloat64 value)
@@ -2215,7 +2153,7 @@ asynStatus MultiFunction::writeFloat64(asynUser *pasynUser, epicsFloat64 value)
 
   // Pulse generator functions
   if ((function == pulseGenPeriod_)    ||
-      (function == pulseGenWidth_)     ||
+      (function == pulseGenDutyCycle_) ||
       (function == pulseGenDelay_)) {
     if (pulseGenRunning_[addr]) {
       status = stopPulseGenerator(addr);
@@ -2617,15 +2555,16 @@ void MultiFunction::pollerThread()
   epicsUInt32 countVal;
   long aoCount, aoIndex, aiCount, aiIndex;
   short aoStatus, aiStatus;
-  epicsTimeStamp now;
-  epicsTimeStamp startTime;
+  epicsTime startTime=epicsTime::getCurrent(), endTime, currentTime;
   int lastPoint;
   int status=0, prevStatus=0;
 
   while(1) {
     lock();
     ULMutex.lock();
-    epicsTimeGetCurrent(&startTime);
+    endTime = epicsTime::getCurrent();
+    setDoubleParam(pollTimeMS_, (endTime-startTime)*1000.);
+    startTime = epicsTime::getCurrent();
 
     // Read the digital inputs
     for (i=0; i<numIOPorts_; i++) {
@@ -2740,7 +2679,8 @@ void MultiFunction::pollerThread()
       getIntegerParam(waveDigCurrentPoint_, &currentPoint);
       lastPoint = aiIndex / numWaveDigChans_ + 1;
       if (lastPoint > currentPoint) {
-        epicsTimeGetCurrent(&now);
+        currentTime = epicsTime::getCurrent();
+        epicsTimeStamp now = (epicsTimeStamp)currentTime;
         int firstChan;
         getIntegerParam(waveDigFirstChan_, &firstChan);
         int lastChan = firstChan + numWaveDigChans_ - 1;
@@ -2756,6 +2696,35 @@ void MultiFunction::pollerThread()
       if (aiStatus == 0) {
         stopWaveDig();
       }
+    } else {
+      // If the waveform digitizer is not running then read the analog inputs
+      int range, type, mode;
+      epicsInt32 value;
+      getIntegerParam(0, analogInMode_, &mode);
+      for (i=0; i<numAnalogIn_; i++) {
+        getIntegerParam(i, analogInRange_, &range);
+        getIntegerParam(i, analogInType_, &type);
+        if (type != AI_CHAN_TYPE_VOLTAGE) continue;
+        if ((boardType_ == E_1608) && (mode == DIFFERENTIAL) && (i>3)) break;
+        #ifdef _WIN32
+          if (ADCResolution_ <= 16) {
+            epicsUInt16 shortVal;
+            status = cbAIn(boardNum_, i, range, &shortVal);
+            value = shortVal;
+          } else {
+            ULONG ulongVal;
+            status = cbAIn32(boardNum_, i, range, &ulongVal, 0);
+            value = (epicsInt32)ulongVal;
+          }
+        #else
+          double data;
+          Range ulRange;
+          mapRange(range, &ulRange);
+          status = ulAIn(daqDeviceHandle_, i, aiInputMode_, ulRange, AIN_FF_NOSCALEDATA, &data);
+          value = (epicsInt32) data;
+        #endif
+        setIntegerParam(i, analogInValue_, value);
+      }
     }
 
     for (i=0; i<MAX_SIGNALS; i++) {
@@ -2766,13 +2735,11 @@ error:
       reportError(-1, functionName, "Device returned to normal status");
     }
     prevStatus = status;
+    double pollTime;
+    getDoubleParam(pollSleepMS_, &pollTime);
     ULMutex.unlock();
     unlock();
-    epicsTimeGetCurrent(&now);
-    double diffTime = epicsTimeDiffInSeconds(&now, &startTime);
-    double sleepTime = pollTime_ - diffTime;
-    if (sleepTime < 0.001) sleepTime = 0.001;
-    epicsThreadSleep(sleepTime);
+    epicsThreadSleep(pollTime/1000.);
   }
 }
 

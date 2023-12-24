@@ -4,17 +4,17 @@
 dbLoadDatabase "$(MEASCOMP)/dbd/measCompApp.dbd"
 measCompApp_registerRecordDeviceDriver pdbbase
 
-epicsEnvSet("PREFIX",                   "USBCTR:")
-epicsEnvSet("PORT",                     "USBCTR_1")
-epicsEnvSet("UNIQUE_ID",                "01E538A2")
-epicsEnvSet("MCS_PREFIX",               "$(PREFIX)MCS:")
-epicsEnvSet("RNAME",                    "mca")
-epicsEnvSet("MAX_COUNTERS",             "9")
-epicsEnvSet("MAX_POINTS",               "2048")
-epicsEnvSet("POLL_TIME",                "0.01")
-epicsEnvSet("PORT",                     "USBCTR")
+epicsEnvSet("PREFIX",             "USBCTR:")
+epicsEnvSet("PORT",               "USBCTR_1")
+epicsEnvSet("UNIQUE_ID",          "0214D582")
+epicsEnvSet("MCS_PREFIX",         "$(PREFIX)MCS:")
+epicsEnvSet("SCALER_PREFIX",      "$(PREFIX)"
+epicsEnvSet("SCALER_NAME",        "scaler1")
+epicsEnvSet("RNAME",              "mca")
+epicsEnvSet("MAX_COUNTERS",       "9")
+epicsEnvSet("MAX_POINTS",         "2048")
 # For MCA records FIELD=READ, for waveform records FIELD=PROC
-epicsEnvSet("FIELD",                    "PROC")
+epicsEnvSet("FIELD",              "PROC")
 
 ## Set the minimum sleep time to 1 ms
 asynSetMinTimerPeriod(0.001)
@@ -22,16 +22,15 @@ asynSetMinTimerPeriod(0.001)
 ## Configure port driver
 # USBCTRConfig(portName,       # The name to give to this asyn port driver
 #              uniqueID,       # Device serial number.
-#              maxTimePoints,  # Maximum number of time points for MCS
-#              pollTime,       # Time to sleep between polls
-USBCTRConfig("$(PORT)", "$(UNIQUE_ID)", $(MAX_POINTS), $(POLL_TIME))
+#              maxTimePoints)  # Maximum number of time points for MCS
+USBCTRConfig("$(PORT)", "$(UNIQUE_ID)", $(MAX_POINTS))
 
 #asynSetTraceMask($(PORT), -1, ERROR|FLOW|DRIVER)
 
 dbLoadTemplate("$(MEASCOMP)/db/USBCTR.substitutions", "P=$(PREFIX), PORT=$(PORT)")
 
 # This loads the scaler record and supporting records
-dbLoadRecords("$(SCALER)/db/scaler.db", "P=$(PREFIX), S=scaler1, DTYP=Asyn Scaler, OUT=@asyn(USBCTR), FREQ=10000000")
+dbLoadRecords("$(SCALER)/db/scaler.db", "P=$(SCALER_PREFIX), S=$(SCALER_NAME), DTYP=Asyn Scaler, OUT=@asyn($(PORT)), FREQ=10000000")
 
 # This database provides the support for the MCS functions
 dbLoadRecords("$(MEASCOMP)/db/measCompMCS.template", "P=$(MCS_PREFIX), PORT=$(PORT), MAX_POINTS=$(MAX_POINTS)")

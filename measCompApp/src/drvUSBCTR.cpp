@@ -31,6 +31,8 @@
 #include <epicsExport.h>
 #include <measCompDiscover.h>
 
+#define DRIVER_VERSION "4.2"
+
 typedef enum {
   MCSPoint0Clear,
   MCSPoint0NoClear,
@@ -39,10 +41,21 @@ typedef enum {
 
 static const char *driverName = "USBCTR";
 
+// Board parameters
+#define modelNameString           "MODEL_NAME"
+#define modelNumberString         "MODEL_NUMBER"
+#define firmwareVersionString     "FIRMWARE_VERSION"
+#define uniqueIDString            "UNIQUE_ID"
+#define ULVersionString           "UL_VERSION"
+#define driverVersionString       "DRIVER_VERSION"
+#define pollSleepMSString         "POLL_SLEEP_MS"
+#define pollTimeMSString          "POLL_TIME_MS"
+#define lastErrorMessageString    "LAST_ERROR_MESSAGE"
+
 // Pulse output parameters
 #define pulseGenRunString         "PULSE_RUN"
 #define pulseGenPeriodString      "PULSE_PERIOD"
-#define pulseGenWidthString       "PULSE_WIDTH"
+#define pulseGenDutyCycleString   "PULSE_DUTY_CYCLE"
 #define pulseGenDelayString       "PULSE_DELAY"
 #define pulseGenCountString       "PULSE_COUNT"
 #define pulseGenIdleStateString   "PULSE_IDLE_STATE"
@@ -85,14 +98,13 @@ static const char *driverName = "USBCTR";
 #define MAX_ERROR_STRING_LEN 256
 #define MAX_BOARDNAME_LEN    256
 
-#define DEFAULT_POLL_TIME 0.01
 #define SINGLEIO_THRESHOLD_TIME 0.01  // Above this time uses SINGLEIO, below uses block I/O.
 
 /** This is the class definition for the USBCTR class
   */
 class USBCTR : public asynPortDriver {
 public:
-  USBCTR(const char *portName, const char *uniqueID, int maxTimePoints, double pollTime);
+  USBCTR(const char *portName, const char *uniqueID, int maxTimePoints);
 
   /* These are the methods that we override from asynPortDriver */
   virtual asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
@@ -107,10 +119,21 @@ public:
   virtual void pollerThread(void);
 
 protected:
+  // Model parameters
+  int modelName_;
+  int modelNumber_;
+  int firmwareVersion_;
+  int uniqueID_;
+  int ULVersion_;
+  int driverVersion_;
+  int pollSleepMS_;
+  int pollTimeMS_;
+  int lastErrorMessage_;
+
   // Pulse generator parameters
   int pulseGenRun_;
   int pulseGenPeriod_;
-  int pulseGenWidth_;
+  int pulseGenDutyCycle_;
   int pulseGenDelay_;
   int pulseGenCount_;
   int pulseGenIdleState_;
@@ -171,6 +194,7 @@ protected:
   int model_;
 
 private:
+  int boardType_;
   #ifdef _WIN32
     int boardNum_;
   #else
@@ -178,7 +202,6 @@ private:
   #endif
   DaqDeviceDescriptor daqDeviceDescriptor_;
   char boardName_[MAX_BOARDNAME_LEN];
-  double pollTime_;
   int forceCallback_;
   int numCounters_;
   int numMCSCounters_;
@@ -229,14 +252,13 @@ static void pollerThreadC(void * pPvt)
     pUSBCTR->pollerThread();
 }
 
-USBCTR::USBCTR(const char *portName, const char *uniqueID, int maxTimePoints, double pollTime)
+USBCTR::USBCTR(const char *portName, const char *uniqueID, int maxTimePoints)
   : asynPortDriver(portName, MAX_SIGNALS,
-      asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynFloat32ArrayMask | asynFloat64Mask | asynFloat64ArrayMask | asynDrvUserMask,
-      asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynFloat32ArrayMask | asynFloat64Mask | asynFloat64ArrayMask,
+      asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynFloat32ArrayMask | asynFloat64Mask | asynFloat64ArrayMask | asynOctetMask |asynDrvUserMask,
+      asynInt32Mask | asynUInt32DigitalMask | asynInt32ArrayMask | asynFloat32ArrayMask | asynFloat64Mask | asynFloat64ArrayMask | asynOctetMask,
       // Note: ASYN_CANBLOCK must not be set because the scaler record does not work with asynchronous device support
       ASYN_MULTIDEVICE, 1, /* ASYN_CANBLOCK=0, ASYN_MULTIDEVICE=1, autoConnect=1 */
       0, 0),  /* Default priority and stack size */
-    pollTime_((pollTime > 0.) ? pollTime : DEFAULT_POLL_TIME),
     forceCallback_(1),
     maxTimePoints_(maxTimePoints),
     scalerRunning_(false),
@@ -254,18 +276,32 @@ USBCTR::USBCTR(const char *portName, const char *uniqueID, int maxTimePoints, do
     printf("Error creating device with measCompCreateDevice\n");
     return;
   }
+
   #ifdef _WIN32
     boardNum_ = (int) handle;
     strcpy(boardName_, daqDeviceDescriptor_.ProductName);
+    boardType_ = daqDeviceDescriptor_.ProductID;
   #else
     daqDeviceHandle_ = handle;
     strcpy(boardName_, daqDeviceDescriptor_.productName);
+    boardType_ = daqDeviceDescriptor_.productId;
   #endif
+
+  // Model parameters
+  createParam(modelNameString,                 asynParamOctet,  &modelName_);
+  createParam(modelNumberString,               asynParamInt32,  &modelNumber_);
+  createParam(firmwareVersionString,            asynParamOctet, &firmwareVersion_);
+  createParam(uniqueIDString,                   asynParamOctet, &uniqueID_);
+  createParam(ULVersionString,                  asynParamOctet, &ULVersion_);
+  createParam(driverVersionString,              asynParamOctet, &driverVersion_);
+  createParam(pollSleepMSString,              asynParamFloat64, &pollSleepMS_);
+  createParam(pollTimeMSString,               asynParamFloat64, &pollTimeMS_);
+  createParam(lastErrorMessageString,           asynParamOctet, &lastErrorMessage_);
 
   // Pulse generator parameters
   createParam(pulseGenRunString,               asynParamInt32, &pulseGenRun_);
   createParam(pulseGenPeriodString,          asynParamFloat64, &pulseGenPeriod_);
-  createParam(pulseGenWidthString,           asynParamFloat64, &pulseGenWidth_);
+  createParam(pulseGenDutyCycleString,       asynParamFloat64, &pulseGenDutyCycle_);
   createParam(pulseGenDelayString,           asynParamFloat64, &pulseGenDelay_);
   createParam(pulseGenCountString,             asynParamInt32, &pulseGenCount_);
   createParam(pulseGenIdleStateString,         asynParamInt32, &pulseGenIdleState_);
@@ -335,6 +371,32 @@ USBCTR::USBCTR(const char *portName, const char *uniqueID, int maxTimePoints, do
     printf("Unknown model\n");
   }
 
+  char uniqueIDStr[256];
+  char firmwareVersion[256];
+  char ULVersion[256];
+  #ifdef _WIN32
+    int size = sizeof(uniqueIDStr);
+    cbGetConfigString(BOARDINFO, boardNum_, 0, BIDEVUNIQUEID, uniqueIDStr, &size);
+    size = sizeof(firmwareVersion);
+    cbGetConfigString(BOARDINFO, boardNum_, VER_FW_MAIN, BIDEVVERSION, firmwareVersion, &size);
+    float DLLRevNum, VXDRevNum;
+    cbGetRevision(&DLLRevNum, &VXDRevNum);
+    sprintf(ULVersion, "%f %f", DLLRevNum, VXDRevNum);
+  #else
+    strcpy(uniqueIDStr, uniqueID);
+    unsigned int size = sizeof(firmwareVersion);
+    ulDevGetConfigStr(daqDeviceHandle_, ::DEV_CFG_VER_STR, DEV_VER_FW_MAIN, firmwareVersion, &size);
+    size = sizeof(ULVersion);
+    ulGetInfoStr(UL_INFO_VER_STR, 0, ULVersion, &size);
+  #endif
+  setIntegerParam(modelNumber_, boardType_);
+  setStringParam(modelName_, boardName_);
+  setStringParam(uniqueID_, uniqueIDStr);
+  setStringParam(firmwareVersion_, firmwareVersion);
+  setStringParam(ULVersion_, ULVersion);
+  setStringParam(driverVersion_, DRIVER_VERSION);
+  setDoubleParam(pollSleepMS_, 50.);
+  
   // Allocate memory for the input buffers
   for (i=0; i<MAX_MCS_COUNTERS; i++) {
     MCSBuffer_[i]  = (epicsInt32 *) calloc(maxTimePoints_,  sizeof(epicsInt32));
@@ -389,13 +451,13 @@ char *USBCTR::getErrorMessage(int error)
 int USBCTR::startPulseGenerator(int timerNum)
 {
   int status=0;
-  double frequency, period, width, delay;
+  double frequency, period, delay;
   double dutyCycle;
   int count, idleState;
   static const char *functionName = "startPulseGenerator";
 
   getDoubleParam (timerNum, pulseGenPeriod_,    &period);
-  getDoubleParam (timerNum, pulseGenWidth_,     &width);
+  getDoubleParam (timerNum, pulseGenDutyCycle_, &dutyCycle);
   getDoubleParam (timerNum, pulseGenDelay_,     &delay);
   getIntegerParam(timerNum, pulseGenCount_,     &count);
   getIntegerParam(timerNum, pulseGenIdleState_, &idleState);
@@ -403,7 +465,6 @@ int USBCTR::startPulseGenerator(int timerNum)
   frequency = 1./period;
   if (frequency < MIN_FREQUENCY) frequency = MIN_FREQUENCY;
   if (frequency > MAX_FREQUENCY) frequency = MAX_FREQUENCY;
-  dutyCycle = width * frequency;
   period = 1. / frequency;
   if (dutyCycle <= 0.) dutyCycle = .0001;
   if (dutyCycle >= 1.) dutyCycle = .9999;
@@ -428,12 +489,11 @@ int USBCTR::startPulseGenerator(int timerNum)
   // in the parameter library
   pulseGenRunning_[timerNum] = true;
   period = 1. / frequency;
-  width = period * dutyCycle;
   asynPrint(pasynUserSelf, ASYN_TRACE_FLOW,
-    "%s:%s: started pulse generator %d actual frequency=%f, actual period=%f, actual width=%f, actual delay=%f\n",
-    driverName, functionName, timerNum, frequency, period, width, delay);
+    "%s:%s: started pulse generator %d actual frequency=%f, actual period=%f, actual duty cycle=%f, actual delay=%f\n",
+    driverName, functionName, timerNum, frequency, period, dutyCycle, delay);
   setDoubleParam(timerNum, pulseGenPeriod_, period);
-  setDoubleParam(timerNum, pulseGenWidth_, width);
+  setDoubleParam(timerNum, pulseGenDutyCycle_, dutyCycle);
   setDoubleParam(timerNum, pulseGenDelay_, delay);
   return 0;
 }
@@ -1211,7 +1271,7 @@ asynStatus USBCTR::writeFloat64(asynUser *pasynUser, epicsFloat64 value)
 
   // Pulse generator functions
   if ((function == pulseGenPeriod_)    ||
-      (function == pulseGenWidth_)     ||
+      (function == pulseGenDutyCycle_) ||
       (function == pulseGenDelay_)) {
     if (pulseGenRunning_[addr]) {
       status = stopPulseGenerator(addr);
@@ -1412,12 +1472,16 @@ void USBCTR::pollerThread()
    * time */
   static const char *functionName = "pollerThread";
   epicsUInt32 newValue, changedBits, prevInput=0;
+  epicsTime startTime=epicsTime::getCurrent(), endTime, currentTime;
   unsigned short biVal;;
   int i;
   int status;
 
   while(1) {
     lock();
+    endTime = epicsTime::getCurrent();
+    setDoubleParam(pollTimeMS_, (endTime-startTime)*1000.);
+    startTime = epicsTime::getCurrent();
 
     // Read the digital inputs
     #ifdef _WIN32
@@ -1450,8 +1514,10 @@ void USBCTR::pollerThread()
     for (i=0; i<MAX_SIGNALS; i++) {
       callParamCallbacks(i);
     }
+    double pollTime;
+    getDoubleParam(pollSleepMS_, &pollTime);
     unlock();
-    epicsThreadSleep(pollTime_);
+    epicsThreadSleep(pollTime/1000.);
   }
 }
 
@@ -1462,8 +1528,7 @@ void USBCTR::report(FILE *fp, int details)
   int i;
   int currentPoint;
 
-  fprintf(fp, "  Port: %s, pollTime=%f\n",
-          this->portName, pollTime_);
+  fprintf(fp, "  Port: %s\n", this->portName);
   if (details >= 1) {
     fprintf(fp, "  Pulse generators:\n");
     for (i=0; i<NUM_TIMERS; i++) {
@@ -1487,9 +1552,9 @@ void USBCTR::report(FILE *fp, int details)
 
 /** Configuration command, called directly or from iocsh */
 extern "C" int USBCTRConfig(const char *portName, const char *uniqueID,
-                            int maxTimePoints, double pollTime)
+                            int maxTimePoints)
 {
-  new USBCTR(portName, uniqueID, maxTimePoints, pollTime);
+  new USBCTR(portName, uniqueID, maxTimePoints);
   return(asynSuccess);
 }
 
@@ -1497,15 +1562,13 @@ extern "C" int USBCTRConfig(const char *portName, const char *uniqueID,
 static const iocshArg configArg0 = { "Port name",             iocshArgString};
 static const iocshArg configArg1 = { "uniqueID",              iocshArgString};
 static const iocshArg configArg2 = { "Max. # of time points", iocshArgInt};
-static const iocshArg configArg3 = { "Poll time",             iocshArgDouble};
 static const iocshArg * const configArgs[] = {&configArg0,
                                               &configArg1,
-                                              &configArg2,
-                                              &configArg3};
-static const iocshFuncDef configFuncDef = {"USBCTRConfig",4,configArgs};
+                                              &configArg2};
+static const iocshFuncDef configFuncDef = {"USBCTRConfig",3,configArgs};
 static void configCallFunc(const iocshArgBuf *args)
 {
-  USBCTRConfig(args[0].sval, args[1].sval, args[2].ival, args[3].dval);
+  USBCTRConfig(args[0].sval, args[1].sval, args[2].ival);
 }
 
 void drvUSBCTRRegister(void)
